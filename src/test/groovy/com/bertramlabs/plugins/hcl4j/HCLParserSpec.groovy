@@ -283,6 +283,27 @@ escapedInterpolation = "$${var.firstName}"
 	}
 
 
+	void "ignore functions attributes with interpolated strings"() {
+		given:
+
+		def hcl = '''
+				locals {
+				   module = "module_2"
+				   policy_file = "policy.rego"
+                   opa_policy = file( "${local.module}/${local.policy_file}" )
+                 }
+'''
+		HCLParser parser = new HCLParser();
+		when:
+		def results  = parser.parse(hcl)
+		println JsonOutput.prettyPrint(JsonOutput.toJson(results));
+		then:
+		results.containsKey('locals') == true
+		results.locals.policy_file == "policy.rego"
+		results.locals.opa_policy == null
+	}
+
+
 	void "should handle multiline string"() {
 		given:
 

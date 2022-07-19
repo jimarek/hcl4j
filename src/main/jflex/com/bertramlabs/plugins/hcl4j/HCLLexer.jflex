@@ -55,6 +55,7 @@ HCLParserException
   HCLAttribute attribute;
   SubTypePrimitiveType subTypePrimitiveType;
   Integer primitiveDepth = 0;
+  Integer primitiveDepthEvaluatedExpression = 0;
 
   Symbol currentBlock = null;
   private Symbol hclBlock(List<String> blockNames) {
@@ -148,11 +149,6 @@ HCLParserException
     return exitAttribute(false);
   }
 
-     private void startEvalExpression() {
-        yypushback(yylength());
-      yybegin(EVALUATEDEXPRESSION);
-     }
-
 
 
 %}
@@ -180,13 +176,14 @@ AnyChar = [^]
 Identifier = [:jletter:] [a-zA-Z0-9\-\_]*
 IdentifierTree = [:jletter:] [a-zA-Z0-9\-\_\.]*
 GetAttr = "." {Identifier}
-Function = [:jletter:] [a-zA-Z0-9\-\_]*\(
+Function = [:jletter:] [a-zA-Z0-9\-\_\.]*\(
 Arguments = ({Expression} ("," {Expression})* ("," | "...")?)
 FunctionCall = {Identifier} "(" {Arguments}? ")"
 
 ArrayModifier = [:jletter:] [a-zA-Z0-9\-\_]*\[
 Property = [:jletter:] [a-zA-Z0-9\-\_]*\.
-EvaluatedExpression = [\(] | {IdentifierTree} | {ArrayModifier} | {Function} | {Identifier}
+EvaluatedExpression = [\(] | {Function}
+VariableExpression =  {IdentifierTree} | {ArrayModifier} | {Identifier}
 
 True = true
 False = false
@@ -259,6 +256,7 @@ AssignmentExpression = [^]
 %state STRINGINTERPOLATED
 %state MULTILINESTRING
 %state EVALUATEDEXPRESSION
+%state VARIABLEEXPRESSION
 %state FORLOOPEXPRESSION
 %state FORTUPLEEXPRESSION
 %state FOROBJECTEXPRESSION
@@ -394,19 +392,24 @@ AssignmentExpression = [^]
   {ListPrimitive}         { subTypePrimitiveType = new ListPrimitiveType(null,yyline,yycolumn,yychar); currentBlock.appendChild(subTypePrimitiveType); yybegin(SUBTYPEPRIMITIVETYPE); }
   {SetPrimitive}         { subTypePrimitiveType = new SetPrimitiveType(null,yyline,yycolumn,yychar); currentBlock.appendChild(subTypePrimitiveType); yybegin(SUBTYPEPRIMITIVETYPE); }
   {MapPrimitive}         { subTypePrimitiveType = new MapPrimitiveType(null,yyline,yycolumn,yychar); currentBlock.appendChild(subTypePrimitiveType); yybegin(SUBTYPEPRIMITIVETYPE); }
-  {EvaluatedExpression}          { startEvalExpression(); }
+  {EvaluatedExpression}          { yybegin(EVALUATEDEXPRESSION); }
+  {VariableExpression}          { yypushback(yylength()); yybegin(VARIABLEEXPRESSION); }
   {Comment}                      { /* ignore */ }
   {WhiteSpace}                   { /* ignore */ }
 
 }
 
-<EVALUATEDEXPRESSION> {
+<VARIABLEEXPRESSION> {
   {IdentifierTree}           { currentBlock.appendChild(new Variable(yytext(),yyline,yycolumn,yychar)); exitAttribute();}
   \}                             { yypushback(yylength()); exitAttribute(true);  }
   {LineTerminator}               { exitAttribute(true);  }
   {Comment}                      { /* ignore */ }
   {WhiteSpace}                   { /* ignore */ }
-  [^}\n]+                        { /* ignore */ }
+}
+<EVALUATEDEXPRESSION> {
+  \(                             { primitiveDepthEvaluatedExpression++ ; }
+  \)                             { primitiveDepthEvaluatedExpression--; if(primitiveDepthEvaluatedExpression == 0) {exitAttribute();} }
+  [^\)\(]*                       { /* ignore */ }
 }
 
 <FORLOOPEXPRESSION> {
